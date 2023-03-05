@@ -1,0 +1,585 @@
+---
+title: "GEOG 4023/5023: Advanced Quant Methods for Geographic Data"
+subtitle: "Lab 5: Point Pattern Analysis"
+author: Jason Lee
+output: 
+  html_document:
+    css: "lab.css"
+---
+
+```{r setup, include=FALSE}
+# Setup the environment
+library(knitr)
+knitr::opts_chunk$set(fig.align='center',fig.width=10, fig.height=6, fig.path='Figs/',  warning=FALSE, echo=TRUE, eval=TRUE, message=FALSE)
+
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+```
+
+<div class="instructions">
+
+Please complete the following questions and submit the finished Rmd and HTML file onto Canvas. 
+
+Don't forget to change name field in the beginning to your **first and last name**. 
+
+</div>
+
+## Objectives
+
+  - Understand how to process raster data 
+  - Understand how to make maps with `ggmap`
+  - Understand what constitutes a point process
+  - Detect and create point-pattern density surfaces
+  - Identify how points are clustered in space (uniform, random, clustered).
+
+## Introduction
+
+In this lab, we will work on the point patterns of Joshua tress distributed
+in the southern California, Nevada and Arizona. The `trees.txt` file in the
+`Data` folder includes the locations of trees and types of
+pollinator. The second set of data are raster measurements of bioclimatic
+variables that are possibly related to the distribution of the trees. In
+the rest of the lab, we will first display and pre-process the data for
+analysis in `spatstat` and then based on the two datasets, explore and
+model the spatial distribution of the trees. 
+
+## Setup
+
+The R package `spatstat` is probably the most commonly used library for
+point pattern analysis. We will primarily use it for the analysis. Let's
+first load the library and related GIS library. If you have not installed it on
+your computer, please install by command  `install.packages()` or the
+bottom right menu in `RStudio`. Feel free to use other libraries too. 
+
+```{r, echo=T, eval=T}
+library(maptools)
+library(maps)
+library(raster)
+library(spatstat)
+library(ggmap)
+library(ggsn)
+```
+
+## Data Mapping and Preprocessing 
+
+### Trees locations
+
+Now let's first take a look at the data we have. The `trees.csv` contains
+four columns: `ID`, `longitude`, `latitude` and `pollinator` types. Let's
+first map the trees. 
+
+
+```{r, eval=T, echo=T}
+
+# Load the csv file with lat/long and types
+treeLocs = read.csv(file="Data/trees.csv", header=T)
+
+# Get the background map with google maps
+bbox <- make_bbox(lon = treeLocs$longitude, lat = treeLocs$latitude, f = .1)
+baseMap <- ggmap(get_map(location = bbox, maptype = "toner", source = "stamen"))
+
+# Map the trees with `geom_point()`
+treeMap = baseMap +
+    geom_point(data = treeLocs, mapping = aes(x = longitude, y = latitude), color = "red") + coord_quickmap()
+
+# Add north arrow and scale bar to make the map more professional
+treeMap = treeMap +
+    north(treeLocs)+ 
+    scalebar(treeLocs, dist=40, dist_unit="km", transform=TRUE, model="WGS84")
+
+plot(treeMap)
+```
+
+### Raster
+
+Now let's see how we should get the measurements of bioclimatic variables.
+Since most of the bioclimatic variables we will use are raster data, we
+will rely on a popular package `raster` for data operations and analysis.
+
+<div class="boxedtext">
+
+Rasters are fantastic tools to store massive amounts of massively cool
+data. Think of a raster as a matrix or a grid of numbers, i.e., pixels.
+Each pixel in the raster has number associated with it that tells us
+something about the data of interest, i.e. How many people live in this
+pixel (yes, people have done this using night light data)? How deep is the
+groundwater under this pixel (see GRACE satellite)? What kinds of crops
+growing in this pixel? You get the idea. 
+
+Most of satellite imagery and data of many climatic related variables are in raster format. The data stored in rasters can be continuous (precipitation, elevation, reflectance) or categorical (land use category). 
+
+- Band
+- Resolution (in both space and time)
+- Extent
+- Values (elevation, land use category, etc.)
+- Projection information
+
+The `raster` package includes several raster classes:
+
+ - A `RasterLayer` contains a single-layer raster. This object contains the number of columns and rows in the raster, the spatial extent, pixel values, and the projection information (stored in CRS format)
+
+ - `RasterBricks`, and `RasterStacks` are great for multiband data (i.e. multiple spectral bands, observations through time). The main difference is that a `RasterBrick` can be linked to only one (though multi-layer) file. `RasterStacks` can be made with multiple files (band from one file merged with a band from another file) - though these objects have to have the same extent and resolution.
+
+![Single band (Rasterlayer) vs multi-band (RasterBricks or RasterStacks)](./images/single_multi_raster.png)
+
+
+The `raster` package can recognize commonly used file extensions: `.grd`,
+`.asc`, `.sdat`, `.rst`, `.nc`, `.tif`, `.envi`, `.bil`, `.img` and `.hdf`. 
+It also provides a useful command `getData()` to obtain the commonly used
+raster datasets, including `SRTM` elevation, `WorldClim` and `CMIP5`
+climate projections, from on-line and load directly to `R`. 
+
+If you have not taken GIS course before or want to know more about raster
+analysis in `R`. The following links are pretty helpful:
+
+- [Intro to raster data](https://datacarpentry.org/r-raster-vector-geospatial/01-raster-structure/index.html)
+
+- [Plot raster data](https://datacarpentry.org/r-raster-vector-geospatial/02-raster-plot/index.html}
+
+- [Reproject raster](https://datacarpentry.org/r-raster-vector-geospatial/03-raster-reproject-in-r/index.html)
+
+- [Raster calculation](https://datacarpentry.org/r-raster-vector-geospatial/04-raster-calculations-in-r/index.html)
+
+- [Multi-band analysis in R](https://datacarpentry.org/r-raster-vector-geospatial/05-raster-multi-band-in-r/index.html)
+
+</div>
+
+
+The raster data that we will use are bioclimatical variables from
+[WorldClim](https://www.worldclim.org/), which contains mean monthly
+climate and derived variables interpolated from weather stations on a 30
+arc-second (~1km) grid. The bioclimatical variables we are using contains
+19 layers (*bands*):
+
+|Variables| Description |
+|-------|--------------------------------|
+|BIO1 	|Annual Mean Temperature|
+|BIO2 	|Mean Diurnal Range (Mean of monthly (max temp – min temp))|
+|BIO3 	|Isothermality (BIO2/BIO7) (* 100)|
+|BIO4 	|Temperature Seasonality (standard deviation *100)|
+|BIO5 	|Max Temperature of Warmest Month|
+|BIO6 	|Min Temperature of Coldest Month|
+|BIO7 	|Temperature Annual Range (BIO5-BIO6)|
+|BIO8 	|Mean Temperature of Wettest Quarter|
+|BIO9 	|Mean Temperature of Driest Quarter|
+|BIO10 	|Mean Temperature of Warmest Quarter|
+|BIO11 	|Mean Temperature of Coldest Quarter|
+|BIO12 	|Annual Precipitation|
+|BIO13 	|Precipitation of Wettest Month|
+|BIO14 	|Precipitation of Driest Month|
+|BIO15 	|Precipitation Seasonality (Coefficient of Variation)|
+|BIO16 	|Precipitation of Wettest Quarter|
+|BIO17 	|Precipitation of Driest Quarter|
+|BIO18 	|Precipitation of Warmest Quarter|
+|BIO19 	|Precipitation of Coldest Quarter|
+
+The bioclimatical data can be obtained by the `raster` function `getData()`
+
+```{r}
+# Specify the locations of the data that we are trying to get
+centerx= mean(treeLocs$longitude)
+centery= mean(treeLocs$latitude)
+# Get the bio variable from WorldClim project
+bioClim = raster::getData('worldclim',var='bio',res=0.5,lon=centerx,lat=centery)
+
+```
+
+We can explore the data first by checking the numbers of bands, geographic
+extent and resolution of the raster and then plotting the data. Note that
+the raster we are dealing with are in lat/long coordinates.
+
+```{r}
+class(bioClim)
+# see the number of bands of the raster
+nlayers(bioClim)
+# see the resolution of the raster, note it is in lat/long
+res(bioClim)
+# see the geographic extent of the raster 
+extent(bioClim)
+# easy way to plot one band of the raster data 
+plot(bioClim$bio1_12)
+# or simply plot all of them
+#plot(bioClim)
+#overlay the tree locations on top of the raster and see if the geographic coordinates match:
+points(treeLocs$longitude, treeLocs$latitude)
+```
+
+We note that the geographic extent of the bioclimatic data is much larger
+than the trees, and probably need a cut to better match the extent. The
+function `crop()` provided in `raster` can be used for the cut.
+
+```{r}
+
+## define the c
+xrange=range(treeLocs$longitude) + c(-0.1, 0.1)
+yrange=range(treeLocs$latitude)+ c(-0.1, 0.1)
+cropExtent=c(xrange, yrange)
+# crop a raster
+bioClimClip = crop(bioClim, y=cropExtent)
+```
+
+Now the data are almost ready. Let's visualize the raster data and the tree
+location using `ggmap` to make the map look more professional.
+
+```{r}
+
+bioClimClip.df=as.data.frame(bioClimClip, xy=TRUE)
+
+# Plot the band `bio1_12` (Annual mean temperature) of the bioclimatic variables
+# Note that alpha=0.5 is used to make the raster display in half transparance
+bioClimMap = baseMap+ geom_raster(data = bioClimClip.df, aes(x=x, y=y, fill=bio1_12), alpha=0.5) + scale_fill_viridis_c() + coord_quickmap()
+
+# Overlay the trees
+bioClimTreeMap = bioClimMap + geom_point(data = treeLocs, mapping = aes(x = longitude, y = latitude), color = "red")
+
+# Now add north arrow and scale bar for final touch 
+bioClimTreeMap = bioClimTreeMap +
+    north(treeLocs)+ 
+    scalebar(treeLocs, dist=40, dist_unit="km", transform=TRUE, model="WGS84")
+
+plot(bioClimTreeMap)
+```
+
+<div class="question">
+
+**Q1:** Please change the above codes to map the bioclimatic variable
+`bio12_12` (annual precipitation) and overlay the tree locations. (15 pts)
+
+**Your answer:**
+
+```{r}
+# Please add your code here:
+# Load the csv file with lat/long and types
+treeLocs <- read.csv(file="Data/trees.csv", header=T)
+
+# Get the background map with google maps
+bbox <- make_bbox(lon = treeLocs$longitude, lat = treeLocs$latitude, f = .1)
+baseMap <- ggmap(get_map(location = bbox, maptype = "toner", source = "stamen"))
+
+# Specify the locations of the data that we are trying to get
+centerx <- mean(treeLocs$longitude)
+centery <- mean(treeLocs$latitude)
+
+# Get the bioclimatic variable from WorldClim project
+bioClim <- raster::getData('worldclim', var = 'bio', res = 0.5, lon = centerx, lat = centery)
+
+# Define the crop extent
+xrange <- range(treeLocs$longitude) + c(-0.1, 0.1)
+yrange <- range(treeLocs$latitude) + c(-0.1, 0.1)
+cropExtent <- c(xrange, yrange)
+
+# Crop the bioclimatic variable raster
+bioClimClip <- crop(bioClim, y = cropExtent)
+
+# Convert the cropped bioclimatic variable raster to a data frame for plotting
+bioClimClip.df <- as.data.frame(bioClimClip, xy = TRUE)
+
+# Map the bioclimatic variable bio12_12 (annual precipitation) with `geom_raster()`
+# Note that alpha=0.5 is used to make the raster display in half transparance
+bioClimMap <- baseMap + 
+  geom_raster(data = bioClimClip.df, aes(x = x, y = y, fill = bio12_12), alpha = 0.5) + 
+  scale_fill_viridis_c() + 
+  coord_quickmap()
+
+# Overlay the trees with `geom_point()`
+bioClimTreeMap <- bioClimMap + 
+  geom_point(data = treeLocs, mapping = aes(x = longitude, y = latitude), color = "red")
+
+# Add north arrow and scale bar to make the map more professional
+bioClimTreeMap <- bioClimTreeMap + 
+  north(treeLocs) + 
+  scalebar(treeLocs, dist = 40, dist_unit = "km", transform = TRUE, model = "WGS84")
+
+plot(bioClimTreeMap)
+
+```
+</div>
+
+### Prepare the data for package `spatstat`
+
+The package `spatstat` stores data a bit differently than the `sp` or `sf`
+package, and it has the following objects (class):
+
+ - `ppp`: planar point pattern
+ - `owin`: spatial region or observation window
+ - `im`: pixel image
+ - `psp`: a pattern of line segments (we won’t cover this in our class, but if you are working with polylines and are interested, check out this text)
+ - `tess`: tesselations, tiling using shapes, think shapefile (again we
+   don't cover this in the class)
+
+**NOTE:** Point pattern analysis depends on distances and areas so it is
+important to have your data in a *projected coordinate system*. So we need
+to re-project our data, and format the data we have (trees location and
+bioclimatic rasters) in `ppp` and `im`. It sounds tedious, but not really
+in practice, the following codes are for this purposes. I put the codes
+here for your information. If you feel the codes are long, simply run the codes without worrying about the details. 
+
+```{r}
+
+# Convert the data frame into a SpatialPointDataFrame
+coordinates(treeLocs)=c('longitude', 'latitude')
+
+# EPSG:4326 is the code for WGS84 projection
+proj4string(treeLocs) = CRS('+init=epsg:4326')
+# Reproject the tree locs to EPSG:32611, which represents UTM projection
+projLocs<-spTransform(treeLocs, CRS("+init=epsg:32611"))
+
+# Reproject the raster to the same UTM projection
+projBioClimClip=projectRaster(bioClimClip, crs=CRS("+init=epsg:32611"))
+
+# Make a ppp object that spatstat uses
+xy=coordinates(projLocs)
+treePPP<-ppp(xy[,1], xy[,2],range(xy[,1]), range(xy[,2]))
+# Rescale from meters to per kilometers
+treePPP.km<-rescale(ppp(xy[,1], xy[,2],range(xy[,1]), range(xy[,2])), 1000, "km")
+
+# The following codes convert raster to im object that spatstat use
+bio1 = rescale(as.im.RasterLayer(subset(projBioClimClip, 1)), 1000, "km")
+names=c("bio1")
+bioClim.km =list(bio1)
+for (i in 2:nlayers(projBioClimClip)){
+    name = paste("bio", i, sep="")
+    names=c(names, name)
+    bioClim.km[[i]] = rescale(as.im.RasterLayer(subset(projBioClimClip, i)), 1000, "km")
+}
+names(bioClim.km)=names
+```
+
+## Point pattern analysis
+
+The data are now ready for `spatstat` for point pattern analysis. In the
+following we will primarily use two data objects, `treePPP.km` for point
+patterns and `bioClim.km` for bioclimatic variables. 
+
+### Kernel density estimation
+
+Kernel density estimation (KDE) is a common method to explore the spatial
+distribution of point patterns. The function `density()` in `spatstat` is for this purpose. For the tree location data set (`treePPP.km`), we can have the
+kernel estimation of intensity by:
+
+```{r}
+den30 = density(treePPP.km, sigma=30)
+plot(den30)
+```
+
+<div class="question">
+
+**Q2:** As we mentioned in the class, the value of *bandwidth* in kernel
+density estimation (KDE) can affect the estimated map. Please generate the kernel estimation maps using the bandwidth values (the `sigma` argument) of 20km and
+10km respectively. In addition, many methods have been proposed to estimate
+the "optimal" bandwidth value, e.g., the function `bw.ppl()`. Please use
+`bw.ppl()` to estimate a bandwidth and generate the third map. (10 pts)
+
+**Your answer:**
+
+```{r}
+par(mfrow=c(1,3))
+# please type your code here
+# Kernel density estimation with sigma=20km
+den20 <- density(treePPP.km, sigma=20)
+plot(den20, main="Kernel Density Estimation (Bandwidth=20km)")
+
+# Kernel density estimation with sigma=10km
+den10 <- density(treePPP.km, sigma=10)
+plot(den10, main="Kernel Density Estimation (Bandwidth=10km)")
+
+# Kernel density estimation with optimal bandwidth estimated by bw.ppl()
+bw <- bw.ppl(treePPP.km)
+denOptimal <- density(treePPP.km, sigma=bw)
+plot(denOptimal, main="Kernel Density Estimation (Optimal Bandwidth)")
+
+```
+**Q3:** Please look at the estimated maps with bandwidth as 10km. What are
+the maximum values and the minimum values of the maps and what does these
+numbers mean. (10 pts)
+
+**Your answer: The maximum value in the kernel density estimation map with bandwidth 10 km is 9.255 and the minimum value is 0.0002.These numbers represent the estimated intensity values of the point pattern. The intensity represents the number of trees per unit area. Therefore, the maximum value (9.255) indicates that the highest density of Joshua trees is around 9 trees per square kilometer in the study area, while the minimum value (0.0002) indicates the areas where no trees are observed.**
+
+```{r}
+# please type your code here
+den10 <- density(treePPP.km, sigma = 10)
+max(den10$z)
+min(den10$z)
+```
+
+It means the intensity, the number of trees per square km
+
+
+**Q4:** From the maps you generated above, what trend can you find as
+different sizes of bandwidth are used? (10 pts)
+
+**Your answer:As the bandwidth size decreases, the estimated density becomes more localized and detailed, showing more variation in tree density across the study area. Conversely, as the bandwidth size increases, the estimated density becomes smoother and more generalized, showing less variation in tree density across the study area. Therefore, choosing an appropriate bandwidth is important in order to accurately represent the spatial pattern of the data.**
+
+
+</div>
+
+### Hypothesis testing
+
+In point pattern analysis, *complete spatial randomness* (or *in-homogeneous
+Poisson point process*) if often used as the null model (null hypothesis)
+in hypothesis testing. Then the statistics like *quadrant counting* and *K*
+function can be used as the test statistics to compare the observed point
+pattern and complete spatial randomness (CSR). Let's first look at what it will look like if the points in `treePPP.km` are completely randomly distributed. 
+
+```{r}
+intensity(treePPP.km)
+# Random simulate a point pattern with complete spatial randomness with the same intenstity and spatial extent of treePPP.km
+randomPPP<-rpoispp(lambda=intensity(treePPP.km), win=Window(treePPP.km))
+plot(randomPPP)
+```
+
+Complete spatial randomness essentially assume two things: 1) the number of
+points is proportional to the area of a sub region and 2) the locations of
+points are independent from each other. Quadrat counting test is to test the
+first and the Monte Carlo test (based on K,G and F function) is for the later.
+
+#### Quadrat count test
+
+The most basic hypothesis test for point patterns is called the Quadrat Test.
+The function `quadrat.test()` can be used to test if a given point pattern
+is a CSR. For our `treePPP.km`, we can do:
+
+```{r}
+quadrat.test(randomPPP, nx=10, ny=10)
+```
+
+<div class="question">
+
+**Q5:** Given the above result of `quadrat.test()`, what conclusion we can
+draw about the distribution of `randomPPP` (10 pts)
+
+**Your answer:The result of the quadrat.test() shows that the chi-squared test statistic is 85.239 with 99 degrees of freedom and a p-value of 0.3274. Since the p-value is greater than the significance level of 0.05, we fail to reject the null hypothesis of complete spatial randomness. Therefore, we can conclude that the distribution of randomPPP is consistent with a CSR process.**
+
+
+**Q6:** Please run the quadrat test on our `treePPP.km` and interpret your
+results. (10 pts)
+
+**Your answer:The chi-squared test statistic is 430.34 with 99 degrees of freedom and a very small p-value of less than 2.2e-16. Since the p-value is much less than the significance level of 0.05, we reject the null hypothesis of CSR and conclude that the tree locations are not randomly distributed.**
+
+
+```{r}
+# Please add your code here:
+quadrat.test(treePPP.km, nx=10, ny=10)
+```
+
+</div>
+
+#### Monte Carlo test based on Riply's K function
+
+As mentioned previously, quadrat count test is to test if the number of
+points is proportional to the area of a sub region. CSR also suggests that the locations of points are independent from each other. Two important violations of independence are:
+
+   - Clustering: Points are clumped. Points are closer together than expected under CSR. In the generating process points “attract” each other. 
+
+   - Dispersion or inhibition: Points are farther apart than expected. This
+     can happen when, in the generating process, points repel each other.
+ 
+The K, G, and F functions are distance-based statistics, and can be used to
+test if the distribution of points are random, clustering or dispersion. We
+will use K function for this lab.
+
+
+The function `Kest()` can be used to generate the sample K function of a
+given point pattern. For example, for CSR case we can randomly simulate a
+point pattern and generate the K function as follows:
+
+```{r}
+randomPPP2<-rpoispp(lambda=intensity(treePPP.km), win=Window(treePPP.km))
+plot(Kest(randomPPP2))
+```
+
+As mentioned in the lecture, the distribution of point pattern (random or
+clustering or dispersed) can be interpreted by comparing the K curves of
+observed point pattern and CSR (above, below or very close). In the above K plot, we can see that K function for `randomPPP2` is very close to the theoretical K function of CSR ($K_{pois}(r)$ in the K plot), which makes sense considering `randomPPP2` is a random sample of CSR. The function `envelope()` can produce a simulation envelope, or a `confidence interval`  of CSR, which can be used for hypothesis testing.
+
+From the below, we can see that the K function for `randomPPP2` falls
+within the envelop and it indicates that we cannot reject the hypothesis
+that the point pattern in `randomPPP2` are randomly distributed.
+
+```{r}
+plot(envelope(randomPPP2, Kest), nsim=39, rank=1)
+```
+
+<div class="question">
+
+**Q7:** Please apply and plot the above `envelop()` to the `treePPP.km` and
+interpret what you found about the distribution of the trees (random,
+clustering and dispersed) (15 pts)
+
+**Your answer:From the plot, we can see that the K function for the tree locations (shown in red) is above the upper simulation envelope, indicating that the trees are clustered more than expected under CSR. Therefore, we can conclude that the distribution of trees is clustered rather than randomly or dispersedly distributed.**
+
+
+```{r}
+# please type your codes here
+# Calculate K function for treePPP.km
+treeK <- Kest(treePPP.km)
+
+# Generate simulation envelope
+env <- envelope(treePPP.km, Kest, nsim = 99)
+
+# Plot the results
+plot(env, main = "Simulation envelope for tree locations")
+plot(treeK, add = TRUE, col = "red")
+
+```
+</div>
+
+
+### Poisson point process modeling
+
+If events are not equally likely at all points within the window the
+process under investigation is said to be *In-homogeneous*. In a
+homogeneous process intensity is constant at all location within the
+window, in an inhomogenous process intensity varies spatially. We can use
+the environmental/auxiliary conditions to estimate the spatially varied
+intensity.
+
+Like in linear regression, we can explore the association of the intensity
+and a given auxiliary variable. The function `rhohat()` can be used to show
+the association of bioclimatic variable `bio1` (annual mean temperature in
+unit of Celsius x 10) and the tree intensity.
+
+```{r}
+plot(rhohat(treePPP.km, bioClim.km$bio1))
+```
+
+We can build a model (Poisson point process model) to estimate the point
+pattern intensity with a combination of auxiliary variables. In the
+following, all of the 19 bioclimatic variables are used in `ppm()` to model
+the intensity of trees. 
+
+```{r}
+ppmFull=ppm(treePPP.km~bio1+bio2+bio3+bio4+bio5+bio6+bio7+bio8+bio9+bio10+bio11+bio12+bio13+bio14+bio15+bio16+bio17+bio18+bio19, data= bioClim.km)
+
+plot(envelope(ppmFull, Kest, nsim=99))
+```
+
+<div class="question">
+
+**Q8:** From the above plot of K function and envelope, what can you find
+about the model `ppmFull`? (10 pts)
+
+**Your answer:The envelope plot shows that the K function for the observed point pattern (trees) falls within the envelope, indicating that the model ppmFull provides a reasonable fit to the data and that the tree locations are not significantly clustered or dispersed after accounting for the environmental/auxiliary conditions. However, it is important to note that the fit of the model may be improved by using additional environmental/auxiliary variables or exploring different modeling approaches.**
+
+
+**Q9:** A total of 19 variables are used here. In multiple linear
+regression, we can use step-wise variable selection (`step()`) to narrow
+down the list of the included variables. Please apply the `step()` to the
+`ppmFull` for variable selection, and based on the output model please
+generate the plot of K function and envelope and interpret the results. (10
+pts)
+
+**Your answer:The envelope plot shows that the K function for the observed point pattern falls within the envelope, indicating that the model ppmStep provides a reasonable fit to the data and that the tree locations are not significantly clustered or dispersed after accounting for the selected environmental/auxiliary conditions. The variable selection process may have improved the fit of the model by removing non-significant variables and reducing the risk of overfitting. However, it is important to note that the choice of variables to include in the model may depend on the specific research question and hypotheses, and that different variable selection methods may lead to different results.**
+
+
+```{r}
+# please type your codes here:
+# Perform stepwise variable selection
+ppmStep <- step(ppmFull, direction = "both")
+
+# Generate plot of K function and envelope for the stepwise model
+plot(envelope(ppmStep, Kest, nsim = 99))
+
+```
+</div>
