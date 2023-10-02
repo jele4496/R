@@ -1,0 +1,290 @@
+---
+title: "GEOG 3023 Lab 4"
+subtitle: "Statistical Relationships in R" 
+author: Jason Lee
+output: 
+  html_document:
+    css: "lab.css"
+---
+
+```{r setup, include=FALSE}
+
+# Setup the environment
+library(knitr)
+knitr::opts_chunk$set(fig.align='center',fig.width=10, fig.height=6, fig.path='Figs/',  warning=FALSE, echo=TRUE, eval=TRUE, message=FALSE)
+
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+
+```
+
+
+<div class="instructions">
+
+Complete all **5 Questions**, and submit the finished Rmd and HTML file onto Canvas. Don't forget to change name field on line 4 to your first and last name. 
+
+This lab is based on a lab developed by Dr. Matthew Crump at CUNY Brooklyn (https://crumplab.github.io/statisticsLab/)
+
+</div>
+
+## Introduction
+
+### Statistical Relationships
+
+In lecture, we have been discussing the idea of correlation. This is the idea that two things that we measure can be somehow related to one another. Some of the relationships that we can measure are meaningful, and might reflect a causal relationship where one thing causes a change in another thing. Some of the relationships are spurious, and do not reflect a causal relationship.
+
+In this lab you will learn how to compute correlations between two variables, and then answer some questions about the correlations that you observe.
+
+### Learning Goals 
+
+  1.  Compute Pearson’s r between two variables with R
+  2.  Simple linear regression with R
+  3.  Discuss the possible meaning of correlations that you observe
+
+
+### Load packages
+
+In this lab we will continue use the 'tidyverse' package, specifically the 'dplyr' functions that were introduced last week. 
+
+Let's load the package:
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+```
+
+### Data
+
+We use data from the [World Happiness Report](https://worldhappiness.report/). The World Happiness Report is a landmark survey of the state of global happiness that ranks 156 countries by how happy their citizens perceive themselves to be.  
+A csv of the data for the year 2018 is included in the lab materials. The data includes annual survey results from the year 2006 to 2017 for each of the 156 countries. Beware that there is missing values ('NA') for some of the columns.
+
+Let's load the data:
+
+```{r, echo=T, results=F}
+# Make sure the data are in the right folder
+whr_data <- read.csv('data/WHR2018.csv')
+
+# Now browse the data and see what columns the data have. The names of the column should explain themselves 
+names(whr_data)
+
+# Show the first few rols of the data frame.
+head(whr_data)
+```
+
+You should be able to see that there is data for many different countries, across a few different years. There are lots of different kinds of measures, and each are given a name that should explain themselves. 
+
+There is a column 'Freedom to make life choices', let's explore the changes of this freedom over the years for the United States. 
+
+```{r}
+#US only dataframe
+whr_data_us <- whr_data %>%
+  select(country, year, Freedom.to.make.life.choices) %>% #select the interested columns
+  filter(country == 'United States')  # only choose United States
+
+# Plot
+ggplot(data=whr_data_us,aes(x=year,y=Freedom.to.make.life.choices))+
+  geom_line(size=3,color="purple")+
+  ylim(0, 1)+
+  labs(y='Perceived Freendom to Make Life Choices',caption="United States citizens perceived freedom to make life choices, displayed as a scale of 0-1, where 0 is little to no freedom, and 1 is complete freedom.")+
+  theme_bw()
+```
+
+
+<div class="question">
+
+**Q1: (2 pts)** Do we observe any temporal trends in these data? What are the trends? What are some statistical methods for trying to explain these trends?
+
+**Answer:** There is temporal trends which is the perceived freedom to make life choices are slowly lower by the time goes on.
+
+</div>
+
+
+### Analyses 
+
+Does a country's measure for “freedom to make life choices” correlate with that countries measure for "Confidence in national government"?
+
+Let’s find out. We calculate the correlation, and then we make the scatter plot. Note, in the `cor` function, if you have NA's in your data (like we do here), we have to specify to only use complete observations. We do this by adding `use="complete.obs"` into the `cor` function.
+
+```{r}
+#correlation 
+print(cor(whr_data$Freedom.to.make.life.choices,
+          whr_data$Confidence.in.national.government,
+          method="pearson",
+          use="complete.obs"))
+
+#scatter plot
+ggplot(data=whr_data)+
+  geom_point(aes(x=Freedom.to.make.life.choices,y=Confidence.in.national.government),size=4)+
+  labs(x="Perceived freedom to Make Choices",y="Public Confidence in National government")+
+  theme_bw()
+```
+
+Another way to handle missing data is to first remove all of the rows with missing data, and then do the correlation. We will do this in a couple steps, first creating our own dataframe with only the variables we want to analyze. Similar with the previous case, we can select the columns we want to keep using `select()`. Then we use `filter()` to remove the rows with NA's. the function `is.na` returns TRUE or FALSE values for if a value in a cell is NA or not. Putting an exclamation mark in front of it inverses teh function and now returns TRUE or FALSE values for if a value in a cell is *not* NA or is NA.
+
+```{r}
+#cleaned dataframe
+smaller_df <- whr_data %>%
+               select(country,
+                      Freedom.to.make.life.choices,
+                      Confidence.in.national.government) %>%
+               filter(!is.na(Freedom.to.make.life.choices),
+                      !is.na(Confidence.in.national.government))
+
+#correlation
+cor(smaller_df$Freedom.to.make.life.choices,
+    smaller_df$Confidence.in.national.government)
+```
+
+Now we see the correlation is .408, which matches the original correlation function that used only complete observations.
+
+Although the scatter plot shows the dots are very spread out, it generally shows that as perceived freedom to make life choices increases in a country, the population's confidence in their national government also increases. This is a positive correlation. Let’s do this again and add the best fit line, so the trend is more clear. 
+
+In ggplot, we can easily do this by adding `geom_smooth()` to our plot and specifying "method=lm". 
+
+The R stats function to fit the line or simple regression is `lm()`, and the way to use it is `lm(y~x,data=df)` where `y~x` is the `formula` to be fitted, `y` is the response or dependent variable, `x` is the explanatory/independent variable, `~` sign is a separator, and `data=` is the dataframe where the data are coming. Type `?lm` to see more about how to use this function.
+
+```{r}
+# make the selection and filtering of the data
+smaller_df <- whr_data %>%
+               select(country,
+                      Freedom.to.make.life.choices,
+                      Confidence.in.national.government) %>%
+               filter(!is.na(Freedom.to.make.life.choices),
+                      !is.na(Confidence.in.national.government))
+
+# first make the scatter plot
+ggplot(data=whr_data,aes(x=Freedom.to.make.life.choices,y=Confidence.in.national.government))+
+  geom_point(size=4)+
+  geom_smooth(se = FALSE, method = lm,size=3)+
+  labs(x="Perceived freedom to Make Choices",y="Public Confidence in National government")+
+  theme_bw()
+
+# use lm() to fit the linear line or the simple regression model
+linearModel<-lm(Confidence.in.national.government~Freedom.to.make.life.choices,data=smaller_df)
+```
+
+Now let's look more carefully at the result of the function `lm()`. What `lm(y~x)` does is to fit the simple linear regression model $y = mx + b$. In other words, `lm()` can estimate the coefficients $b$ (intercept) and $m$ (slope). We can assess the intercept and slope in a few different ways:
+
+1. We can use `summary()` and get the whole model summary
+```{r}
+# show the summary of the fitted linear model
+summary(linearModel)
+```
+
+2. We can index the entire coefficients column and print those values
+```{r}
+# We can access the fitted intercepts and slope values
+# this is a vector with two entries, the first one is intercept and other is slope
+print(linearModel$coefficients)
+```
+
+3. We can index individual rows of the coefficients column and print those individually. 
+```{r}
+#the intercept
+print(linearModel$coefficients[1]) 
+#the slope
+print(linearModel$coefficients[2]) 
+```
+
+
+<div class="question">
+
+**Q2: (3 pts)** Let's look at two other columns in the `whr_data` dataset: `Positive.affect` and `Negative.affect`. Please calculate the correlation coefficient between these two columns. Be sure to account for the `NA` values in the columns as shown earlier. Please also interpret what the value of the correlation coefficient means. 
+
+**Answer:**
+
+```{r}
+#put your code to determine the correlation here
+print(cor(whr_data$Positive.affect,
+          whr_data$Negative.affect,
+          method="pearson",
+          use="complete.obs"))
+
+small_df <- whr_data %>%
+  select(country, Positive.affect, Negative.affect) %>%
+  filter(!is.na(Positive.affect), !is.na(Negative.affect))
+
+cor(small_df$Positive.affect, small_df$Negative.affect)
+
+linearModel<-lm(Positive.affect~Negative.affect,data=small_df)
+
+summary(linearModel)
+```
+
+</div>
+
+
+<div class="question">
+
+**Q3: (3 pts)**  Following Q2, please create a scatter plot between columns `Positive.affect` and `Negative.affect`, where `Positive.affect`is the independent variable, and `Negative.affect` is the dependent variable. Add the regression line in red, and be sure to correctly label your axes, title your plot, and add a caption that describes the relationship between the variables.
+
+**Answer:**
+
+```{r}
+# put your code for the ggplot here 
+ggplot(data=whr_data,aes(x=Positive.affect,y=Negative.affect))+
+  geom_point(size=4)+
+  geom_smooth(se = FALSE, method = lm,size=3, color="red")+
+  labs(x="Positive affect",y="Negative.affect", title="Positive and Negative affect", caption="")+
+  theme_bw()
+```
+
+</div>
+
+
+<div class="question">
+
+**Q4: (4 pts)** Following Q3, Let's indicate the variable `Negative affect` as `y` and `Positive affect` as `x` and conduct a linear regression model. The regression line can be described as $y = mx+b$. What are fitted values for `b` and `m`? Is the value of `m` positive or negative and what does that mean?
+
+**Answer:**
+
+```{r}
+# use lm() to fit the linear line or the simple regression model
+affect_linear_model <- lm(whr_data$Negative.affec~whr_data$Positive.affect)
+
+summary(affect_linear_model)
+
+print(affect_linear_model$coefficients[1])
+print(affect_linear_model$coefficients[2])
+#m is 0.4751628 and b is -0.2993606 meaning that the correlation between negative affect data is quite weak and positive affect has agreater impact.
+```
+
+</div>
+
+
+<div class="question">
+
+**Q5: (10 pts)** Pick two new variables from the `whr_data` dataframe that you think are related somehow, reference [World Happiness Report](https://worldhappiness.report/) if you need more information on a specific variable and what it means, and do the following: 1) compute the Pearson's correlation (like Q2), 2) create a scatter plot and interpret it (like Q3), and 3) conduct a linear regression model and interpret the results of the model (like Q4). 
+
+**Answer:**
+
+```{r}
+#put your code for Q5 here
+whr_data_Social_Support <- whr_data %>%
+  select(country, Social.support, Life.Ladder)
+
+cor(whr_data_Social_Support$Social.support,
+    whr_data_Social_Support$Life.Ladder)
+
+ggplot(whr_data) + aes(x=Social.support, y=Life.Ladder) + geom_point()
+
+social_support_linear_model <- lm(whr_data_Social_Support$Life.Ladder~whr_data_Social_Support$Social.support)
+summary(social_support_linear_model)
+
+sprintf("Intercept: %f", social_support_linear_model$coefficients[1])
+sprintf("Slope: %f", social_support_linear_model$coefficients[2])
+
+ggplot(whr_data) + aes(x=Social.support, y=Life.Ladder) + geom_point() +
+  geom_smooth(method='lm', formula=y~x)
+```
+
+</div>
+
+#### 22 points total. 
+
+
+#### **Reminder** Did you put your name in line 4?
+
+
+#### Once you're all done with the lab, click the 'knit' button up at the top of this markdown window and submit both the .Rmd and .html files to Canvas. 
+

@@ -1,0 +1,317 @@
+---
+title: "GEOG 3023 Lab 1"
+subtitle: "Getting started with R and R Markdown"
+author: "Jason Lee"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    css: lab.css
+---
+
+```{r setup, include=FALSE}
+# Setup the environment
+#install.packages(knitr)
+library(knitr)
+knitr::opts_chunk$set(fig.align='center',fig.width=10, fig.height=6, fig.path='Figs/',  warning=FALSE, echo=TRUE, eval=TRUE, message=FALSE, cache=FALSE)
+
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+```
+
+Please complete the following questions and submit the finished Rmd and HTML file onto Canvas. In order for this file to *knit*, it needs a file called "lab.css" to be in the same folder as the .Rmd file.
+
+Don't forget to change name field on line 4 to your **first and last name**. 
+
+## Goals: 
+1. Understand R objects (numbers, characters, vectors, lists, matrices, and dataframes)
+2. Practice basic functions to explore a data frame 
+3. Check data frame with basic functions
+4. Manipulate data frame
+5. Save data files for future use 
+6. Read in text and numeric data files 
+7. Write organized scripts
+
+## `R` as a programming language
+
+`R` is a free software environment for statistical computing and graphics. In it you can write *scripts*, or text files (e.g., .R or .Rmd) with executable written code and user comments. To write our scripts (and markdowns) we are using `R Studio`, an integrated development environment (IDE) for `R` which works with the standard version of R available from CRAN. `R Studio` includes a wide range of productivity enhancing features and makes coding life just a little bit easier. 
+
+In `R Studio`, you have four (4) main windows: 
+
+- Top left: when you have a script or markdown file open it will appear in the top left portion of your screen. You can edit script here, and can also run the line of code you're currently on or you can highlight multiple lines and run all of those. 
+
+- Bottom left: Console. Here you can write lines of code and run them, the output of a command will show up there (if told to), and this is also where you'll get messages, warnings, errors, all that fun stuff.
+
+- Bottom right: in this window, you can do multiple things. You can look through your file directories. If you make a plot, it will show up here. You can see all the packages you have in your library, and if they're loaded and running (does the package of interest have a checkmark by it?). This is also where you can type in help requests. Also if you want to know what a function does, you can type `?nameoffunction` into the console and it will pull up the help page! There are also 'viewer' and 'presentation' tabs that are useful sometimes too. 
+
+- Top right: Here you can see your environment which is where all of your objects (dataframes, vectors, lists, etc.) are saved. You can also look through your session history and connections. 
+
+### Basics of executing commands (i.e. telling `R` what you want it to do):
+
+This isn't an exhaustive list, but these will be some of the most commonly used operators and shortcuts this semester.
+
+1. `>` is the prompt to type a command in the console
+2. `<-` assigns elements to an object
+    + this is the same as `=`, but `=` is not recommended to use because sometimes R gets confused. 
+3. `%>%` in the `tidyverse` package, this is called a 'pipe' operator, it makes it easier to clearly express a sequence of multiple operations in a more human readable way. It takes a minute to get the hang of, but once you're used to it, it's great. 
+4. `+`, `-`, `*`, `/`, `^`: math operators to do calculations. 
+5. `>`, `<`, `==`, `!=`, `&`, `|`: logical operators that allow you to index and query your data. 
+6. `[row numbers, column numbers]`: is a way to index by rows and columns.
+    + Ex. You have a large dataframe, 'df', that has 10 columns and 10,000 rows. You want to do something to the first 50 rows of columns 3-5. Typing `df[1:50,3:5]` indexes those rows and columns for you.
+7. `$`: this is how you index by column name in a dataframe. 
+    + Ex. You have a dataframe, 'df', that has three columns: 'x', 'y', and 'z'. Typing `mean(df$x)` tells `R` to get the mean of column 'x' in dataframe 'df'.
+8. If you're typing a command or object name, `R` will start to autofill and you can either click on the command from the list that pops up, or you can hit 'tab'.
+9. If you're working in the console, the 'up' arrow will pull up the last line you ran. 
+10. In an .R script, or code chunk in a .Rmd, '#' before a line is a comment. R will ignore that line. If you want to comment a few lines of code at one time, you can highlight the lines of code and then click 'command'+'shift'+'c' ('control'+'shift'+'c') for a Mac (PC).
+11. If you want to just run one line of code, you can click 'control'+'enter' and it will run whatever line your cursor is on. 
+
+## Objects in `R`
+
+`R` is an object oriented programming language. This means that when you use `R`, your computer essentially becomes a filing system for things that you create. Like any good filing system, things have addresses or call numbers that you can quickly use to retrieve things. However, the filing system used to store the objects you create is limited in size by the amount of memory installed in your computer. You’re unlikely to bump into the memory limits of your computer in this class, but it’s important to realize that R objects actually occupy space in your computer. 
+
+### Data Types and Objects in `R` (non-exhaustive list)
+
+1. Character: "a", "swc"
+2. Numeric: 2, 15.5
+3. Integer: 2L (the L tells R to store this as an integer)
+4. Logical: TRUE, FALSE
+5. Complex: 1+4i (complex numbers with real and imaginary parts)
+6. Vector: basic data structure that contains elements of the same type. 
+    + Ex: `numbers <- c(3,62,810,23,4)`
+7. Matrices: elements are arranged in a two-dimensional rectangular layout, e.i., columns with rows of data.
+8. Dataframes: similar to a matrix, but the variables within the dataframe are related to each other.
+    + Ex: a dataframe with 4 columns of meteorological data from denver Airport: Date-time, air temperature, relative humidity, and wind speed.  
+9. List: basic data structure that contains elements of different types
+    + Ex: `list_data <- list("Red", "Green", c(21,32,11), TRUE, 51.23, 119.1)`
+
+`R` is case sensitive, and objects cannot be named with spaces or existing functions. It's best to name your objects in a way that's easy to know what they are. For example, instead of naming your dataframe of meteorological data, "df", (short for dataframe), you should name it something like, "DIA_met_data". 
+
+
+<div class="question">
+
+**Q1:** Create a Vector (2 pt)
+
+```{r q1}
+# complete your answer in the following code chunk
+a <- c(3, 15, 234, 12)
+```
+
+</div>
+
+
+
+## `R` as a calculator 
+
+You can either type an equation or a pre-defined function and make `R` do math and statistics for you. 
+
+Click the green play button (top right corner) in the code chunk below to see how `R` does a handful of different calculations.
+```{r}
+4+4 #sum numbers
+
+sum(4, 4) #sums numbers, but with a function 
+
+2^2 #power 
+
+sqrt(4) #square root 
+
+4/2 #division 
+
+prod(2*16) #multiply
+```
+
+You can also do calculations with objects. 
+
+```{r}
+a <- c(1:10)#make a vector of 1-10
+print(a) #this prints out the object
+
+b <- a+157 #add 157 to each of the elements in a
+b #this also prints the object
+
+a*b #multiply each element in a by b
+```
+
+
+<div class="question">
+
+**Q2:** Practice using operators by calculating the area of a circle with a radius of 6 cm and then printing the answer. (2 pt)
+
+```{r q2}
+# complete your answer in the following code chunk
+6*6*pi
+```
+
+</div>
+
+
+## Working with data in `R`
+
+In addition to the variety of pre-loaded dataframes that `R` has (check out the `datasets` package), we can load our own data into `R` and do cool analyses and make lots of cool figures. Run the next code chunk to load in the 'ColoradoCovid.csv' file. This file contains basic covid statistics for Colorado from March 5th - August 30th, 2020.
+
+The following is the description of each column:
+
+- Date: each day of record
+
+- State: Colorado
+
+- death: cumulative number of covid-related deaths 
+
+- deathIncrease: new confirmed covid-related death on each day
+
+- positive: cumulative number of positive covid cases
+
+- positiveIncrease: new confirmed positive covid cases on each day
+
+- totalTestResults: cumulative number of test conducted 
+
+- totalTestResultsIncrease: new tests on each day
+
+
+```{r}
+# Here is the code to load the csv file
+# Note, please first check where the file ColoradoCovid.csv file located. 
+covid <- read.csv('data/ColoradoCovid.csv')
+
+#format the date column to be a POSIXct date value 
+covid$date <- as.POSIXct(as.character(covid$date), format="%Y%m%d", tz="GMT")
+
+# Clean the data by removing zero and negative values
+covid <- covid[covid$positive>0&covid$positiveIncrease>0&covid$totalTestResultsIncrease>0,]
+
+#look at the first six (6) lines of the data
+head(covid)
+```
+
+One of the first steps in working with data is to see what the data look like. The next code chunk creates a basic timeseries of positive covid cases for the study period. 
+
+```{r}
+#install.packages("tidyverse")
+library(tidyverse)
+
+ggplot()+
+  geom_line(data=covid, aes(x=date, y=positive))+
+  ylab('Cumulative Daily Positive COVID-19 Cases in CO')+
+  xlab('Date 2020')+
+  theme_bw()
+```
+
+
+<div class="question">
+
+**Q3:** What can you infer from this plot? (1 pts)
+
+**Answer:** 
+Cumulative positive COVID-19 cases in Colorado getting higher when the time goes on.
+</div>
+
+
+After looking at the data, we might want to get some descriptive statistics about the data. 
+
+Remember descriptive statistics include the following information about the data: 
+
+| Question | Type of Measure|
+|----------|----------------|
+| Where are the data centered? | Central Tendency |
+| Are the data clustered around the center or spread out? | Dispersion |
+| Is the distribution balanced or asymmetrical? | Skewness |
+| Is the distribution peaky? | Kurtosis | 
+
+
+<div class="question">
+
+**Q4:** What are the three main measures of central tendency, and what are their definitions? (3 pts)
+
+**Answer:** 
+The mode - the most commonly occurring value in a distribution.
+The median - middle value in distribution when the values are arranged in ascending or descending order.
+The mean - sum of the value of each observation in a dataset divided by the number of observations, known as arithmetic average.
+</div>
+
+
+<div class="question">
+
+**Q5:** Pick one of the three measures of central tendency and determine that for positive covid cases? Hint: try typing '?nameofoneofthemeasuresofcentraltendency' into the console and see if any functions start to autofill. Hint2: if you get an NA for a result, try adding, `, na.action=na.exclude` into the function parentheses. (2 pts)
+
+```{r q5}
+# complete your answer in the following code chunk
+x <- table(covid$positive)
+names(x)[which(x==max(x))]
+
+'The covid positive shows negativley skewed graph so the most impressive stat is from the mode which means we could see how many waves we got about covid.'
+```
+
+</div>
+
+
+For the next four (4) questions you can reference the information given in the introduction part of this assignment, some of your TA's slides, the `R` 'help' page, and google to help you write the requested lines of code. These questions use the 'covid' dataframe and are good practice in manipulating, analyzing, and visualizing data. 
+
+
+<div class="question">
+**Q6:** Please find which date has the greatest increases in death, which date has the greatest increase in positive cases, and which date has the greatest number of new tests. Hint: use which.max() to index 'date' by 'deathIncrease', 'positiveIncrease', and then 'totalTestResultsIncrease' (6 pts). 
+
+```{r q6}
+# complete your answer in the following code chunk
+
+covid$date[which.max(covid$deathIncrease)]
+covid$date[which.max(covid$positiveIncrease)]
+covid$date[which.max(covid$totalTestResultsIncrease)]
+```
+
+</div>
+
+
+<div class="question">
+
+**Q7:** In the dataframe 'covid', please add a new column named 'positivityRate' to show the daily positive rate (positiveIncrease/totalTestResultsIncrease) (2 pts).
+
+```{r q7}
+# complete your answer in the following code chunk
+covid <- covid[covid$positive>0&covid$positiveIncrease>0&covid$totalTestResultsIncrease>0,]
+covid["positiveRate"] <- covid$positiveIncrease/covid$totalTestResultsIncrease
+head(covid)
+```
+
+</div>
+
+
+<div class="question">
+
+**Q8:** In the dataframe 'covid', please add a new column called 'totalMortalityRate' to show the daily mortality rate (death/positive) (2 pts)
+
+```{r q8}
+# complete your answer in the following code chunk
+
+covid <- covid[covid$positive>0&covid$positiveIncrease>0&covid$totalTestResultsIncrease>0,]
+covid["daily mortality"] <- covid$death/covid$positive
+head(covid)
+```
+
+</div>
+
+
+<div class="question">
+
+**Q9:** Based on the results in Questions 7 and 8, using ggplot(), please plot the daily positivity rate changes and mortality rate changes on one plot, and then interpret the trends over the time. Your plot should have properly labeled x-axis, y-axis, and legend. Hint: type '?ggplot()' into the console to get some help with setting up your ggplot aesthetics (10 pts).
+
+```{r q9}
+# complete your answer in the following code chunk
+ggplot(covid, aes(date, positive)) + geom_point()
+```
+
+**Answer:** 
+
+</div>
+
+#### 30 points total. 
+
+
+#### **Reminder** Did you put your name in line 4?
+
+
+#### Once you're all done with the lab, you can click the 'knit' button up at the top of this markdown window. 
+
+
+### Acknowledgements
+
+This lab is a modified version of many previous labs created by many people. Thanks to Carson Farmer, Seth Spielman, Guofeng Cao, Nathalie Chardon, Adam Mahood, Kylen Solvik, Ryan Erickson, Adam Reid, and probably more.
+

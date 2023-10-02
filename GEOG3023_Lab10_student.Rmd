@@ -1,0 +1,262 @@
+---
+title: "GEOG 3023 Lab 10"
+subtitle: "Spatial Autocorrelation"
+author: "Jason Lee"
+output: 
+  html_document:
+    css: "lab.css"
+    
+---
+
+```{r setup, include=FALSE}
+
+# Setup the environment
+library(knitr)
+knitr::opts_chunk$set(fig.align='center',fig.width=10, fig.height=6, fig.path='Figs/',  warning=FALSE, echo=TRUE, eval=TRUE, message=FALSE)
+
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+
+```
+
+
+<div class="instructions">
+
+Complete all **6 Questions**, and submit the finished Rmd and HTML file onto Canvas. Don't forget to change name field in the beginning to your first and last name. 
+
+
+</div>
+
+## Installing packages
+
+We're using two packages commonly used for spatial data manipulation in R: sf and spdep. Installing these might take a while, just so you know.
+
+```{r load-packages}
+
+if (!"sf" %in% installed.packages()){install.packages("sf")}
+if (!"spdep" %in% installed.packages()){install.packages("spdep")}
+library(sf)
+library(spdep)
+
+```
+
+## Introduction
+
+This week, we'll be exploring how different Voting Districts in the UK voted during the 2016 Brexit Referendum (where the UK voted to leave the EU). We'll be using this voting data to explore spatial autocorrelation: the degree to which values are correlated to nearby values (e.g. if one district voted to leave the EU, is it more or less likely that an adjacent district also voted to leave?)
+
+### Data
+
+Instead of a regular csv, the data is stored as a "geojson", which also includes the shapes of the voting district. We load it with the "read_sf" command instead of read.csv. read_sf means "read spatial features".
+
+```{r load-data}
+brexit <- read_sf('./brexit.geojson')
+```
+
+We now have a "spatial dataframe" of the voting data. This is just like a normal dataframe, but it also includes a "geometry" column that stores the shape of each district. We can view the first few rows in our dataframe just like we normally would:
+
+```{r view-data}
+head(brexit)
+```
+
+## Example: Electorate Size in Voting Region
+
+First, let's explore the electorate size (number of eligible voters in each district). The variable name for this is "Electorate".
+
+### 1. Mapping
+
+Using the sf package, we can easily map a variable in our data. This will be very similar to how we do normally, with the caveat that we can't use the "$" notation we've been using to get our variables from a dataframe. Instead we use brackets [ ] and include the variable name in quotes:
+
+```{r map-electorate}
+plot(brexit["Electorate"], lty=0) #including lty=0 removes the border lines, which makes the plot more clear
+```
+
+Right off the bat, it looks like thereare some interesting patterns: the highest population voting districts are in the center and south of the UK. But it's hard to tell how much spatial autocorrelation there is. Are high population districts surrounded by other high population districts (positive spatial autocorrelation)? Or are high population districts surrounded by low population ones (negative spatial autocorrelation)?
+
+### 2. Calculating Neighbors Matrix
+
+To quantity the spatial autocorrelation, we can run the "Moran's I Test" that we learned about in lecture. But first we have to tell R to figure out which districts neighbor each other. 
+
+The code below calculates and then prints the neighbors based on *Rook's contiguity*:
+
+```{r rooks-cont}
+rook_nbs <- poly2nb(brexit, queen=FALSE)
+
+# Exploring our neighbors object
+print(rook_nbs) 
+```
+
+There are a total of 380 districts (regions)! On average, they each have 4.94 neighbors (links).
+
+We can explore our neighbors object more. For example, what are the neighbors of the 40th district?
+
+```{r nbs-explore}
+print(rook_nbs[[40]])
+```
+
+It has 8 neighbors: districts 36, 39, 41, 59, 60, 230, 231, and 232
+
+Next, we need to create a weights matrix from our neighbors object. The weights matrix shows how many neighbors each district (region) has, and how each neighbor is 'weighted'. 
+
+```{r rooks-weights}
+rook_weights <- nb2listw(rook_nbs, zero.policy=TRUE) 
+```
+
+To get some intuition about what this object is, let's check the weights for our 40th district, which we found has 8 neighbors:
+
+```{r weight-check}
+print(rook_weights$weights[[40]])
+```
+
+We see it has 8 weights, each of which is 0.125 (1/8th). That makes sense, since we know it has 8 neighbors. 
+
+Now we're ready to calculate our Global Moran's I!
+
+### 3. Global Moran's I
+
+First let's plot the spatial autocorrelation:
+
+```{r plot-elect-moran}
+moran.plot(brexit$Electorate, rook_weights, zero.policy = TRUE, labels = F)
+```
+
+This is a busy plot, let's break it into quadrants. Starting in the top right corner and going clocwise around the plot: 
+
+1. Positive regions are surrounded by other positive regions 
+2. Positive regions are surrounded by negative regions
+3. Negative regions are surrounded by other negative regions
+4. Negative regions are surrounded by positive regions. 
+
+So for this plot, in general there seems to be a positive trend: districts with high electorate are generally surrounded by other regions with high electorates.
+
+Let's calculate the Moran's I statistic and corresponding p-value:
+
+```{r elect-moran-test}
+moran.test(brexit$Electorate, rook_weights, zero.policy=T)
+```
+
+The key values here are the p-value and the "Moran I Statistic". The p-value is less than 0.05, so there is significant spatial autocorrelation. Then we look at the Moran I value, which can be interpreted just like a correlation coefficient: it ranges from -1 to 1, with positive values corresponding to positive spatial autocorrelation and negative values corresponding to negative spatial autocorrelation. Values closer to 0 represent weak spatial autocorrelation. 
+
+So what we see here is significant positive spatial autocorrelation, but not very strong (Moran I = 0.206).
+
+### 4. Interpreting Overall Results
+
+Taking all our results together (map, Moran's plot, Moran's Test Results), we see that there is generally positive spatial autocorrelation in the electorate sizes, but looking at the map there is quite a bit of change between different regions of the country: in the North, generally there is low electorate sizes. In the South, there are some clusters of higher electorate sizes, but then some randomness. 
+
+
+## Your Turn: Percent Voting to Leave EU
+
+Now, let's look at a different variable: `Pct_Leave`. This is the percentage of voters in each district that voted to leave the European Union. 
+
+### 1. Mapping
+
+
+<div class="question">
+
+**Q1 (2 pts):** Create a map of the "Pct_Leave" Variable.
+
+**Your Answer:**
+
+```{r map-pct-leave}
+# Type your code here
+plot(brexit["Pct_Leave"], lty=0)
+```
+
+</div>
+
+
+<div class="question">
+
+**Q2 (3 pts):** In a few sentences, describe the pattern(s) you see. Where did people vote most heavily for leaving? Where did they vote to stay? Do you think there is spatial autocorrelation here? If so, is it positive or negative? 
+
+**Your Answer:Southern part of England have the most heavily for leaving. But the northern part vote to stay. I think there is spatial autocorrelation because it's clearly devided by north and south. Also it is negative.**
+
+
+</div>
+
+
+### 2. Calculating Neighbors Matrix
+
+Next, we need to calculate the neighbors matrix. Instead of using Rook's Contiguity, let's use Queen's Contiguity by setting queens=TRUE in the poly2nb command.
+
+
+<div class="question">
+
+**Q3 (4 pts):** Create the neighbors object and weights matrix using *Queen's contiguity*.
+
+**Your Answer:**
+
+```{r queens-cont}
+# Type your code for neighbor here
+nbs <- poly2nb(brexit, queen=FALSE)
+print(nbs)
+print(nbs[[40]])
+#Type your code for weights here
+wts <- nb2listw(nbs, zero.policy = TRUE)
+print(nbs$weights[[40]])
+```
+
+</div>
+
+
+### 3. Global Moran's I
+
+
+<div class="question">
+
+**Q4 (4 pts):** Create a Global Moran's I Plot for Pct_Leave using your Queen's weights matrix. Does there appear to be spatial autocorrelation? If so, is it positive or negative?
+
+**Your Answer:**
+
+ positive spatial autocor
+
+```{r leave-moran-plot}
+# Type your code here
+moran.plot(brexit$Pct_Leave, rook_weights, zero.policy = TRUE, labels = F)
+
+```
+
+
+</div>
+
+
+<div class="question">
+
+**Q5 (4 pts):** Run a global Moran's I test for Pct_Leave using your Queen's weights matrix and interpret the results: Is there significant spatial autocorrelation? If so, in what direction and how strong is it? Is it stronger or weaker than the spatial autocorrelation for Electorate that we ran above?
+
+**Your Answer:**
+
+Significant, positive, and pretty strong. Much stronger than Electorate
+
+```{r leave-moran-test}
+# Type your code here
+
+
+```
+
+
+</div>
+
+
+### 4. Interpreting Overall Results
+
+
+<div class="question">
+
+**Q6 (5 pts):** Using all the information we've gathered so far (map, Moran's Plot, and Global Moran's test results), summarize the spatial voting patterns for the 2016 Brexit vote in a short paragraph. Were districts that voted to leave typically close to other districts that voted to leave? Were districts that voted to remain typically close to other districts that voted to remain? What do you think might be responsible for the spatial patterns we see in the votes?
+
+**Your Answer:**
+
+
+
+</div>
+
+
+#### 22 points total. 
+
+
+#### **Reminder** Did you put your name in line 4?
+
+
+#### Once you're all done with the lab, click the 'knit' button up at the top of this markdown window and submit both the .Rmd and .html files to Canvas. 
+

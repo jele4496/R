@@ -1,0 +1,392 @@
+---
+title: "GEOG 3023: Statistics for Geography"
+subtitle: "Lab 9: Linear regression"
+author: Jason Lee
+output: 
+  html_document:
+    css: "lab.css"
+---
+
+```{r setup, include=FALSE}
+
+# Setup the environment
+library(knitr)
+knitr::opts_chunk$set(fig.align='center',fig.width=10, fig.height=6, fig.path='Figs/',  warning=FALSE, echo=TRUE, eval=TRUE, message=FALSE)
+
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+
+```
+
+
+<div class="instructions">
+
+Please complete the following questions and submit the finished Rmd and HTML file onto Canvas. 
+
+Don't forget to change name field in the beginning to your **first and last name**. 
+
+</div>
+
+
+## Batter up 
+
+The movie and book [Moneyball](http://en.wikipedia.org/wiki/Moneyball_(film)) focuses on the "quest for the secret of success in baseball". It follows a low-budget team, the Oakland Athletics, who believed that underused statistics, such as a player's ability to get on base, better predict the ability to score runs than typical statistics like home runs, RBIs (runs batted in), and batting average. Obtaining players who excelled in these underused statistics turned out to be much more affordable for the team.
+
+In this lab we'll be looking at data from all 30 Major League Baseball teams and examining the linear relationship between runs scored in a season and a number of other player statistics. Our aim will be to summarize these relationships both graphically and numerically in order to find which variable, if any, helps us best predict a team's runs scored in a season.
+
+## Getting Started
+
+### Load packages
+
+In this lab we will explore the data using the `dplyr` package and visualize it using the `ggplot2` package for data visualization. The required data set is enclosed.
+
+Let's load the packages.
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+```
+
+### The data
+
+Let's load up the data for the 2011 season.
+
+```{r load-data}
+mlb11<-read.csv('MLB11.csv')
+```
+
+In addition to runs scored, there are seven traditionally used variables in the data set: at-bats, hits, home runs, batting average, strikeouts, stolen bases, and wins. There are also three newer variables: on-base percentage, slugging percentage, and on-base plus slugging. For the first portion of the analysis we'll consider the seven traditional variables. At the end of the lab, you'll work with the three newer variables on your own.
+
+
+<div class="question">
+
+**Q1 (1 pt):** What type of plot would you use to display the relationship between `runs` and one of the other numerical variables? 
+* histogram  
+* box plot  
+* scatter plot  
+* bar plot 
+
+**Your answer: scatter plot**
+
+
+</div>
+
+
+<div class="question">
+
+**Q2 (5 pt):** Plot the relationship between `runs` and `at_bats`, using `at_bats` as the explanatory variable. 
+The relationship appears to be:
+
+* linear  
+* negative  
+* horseshoe-shaped ($\cap$)   
+* u-shaped ($\cup$) 
+
+**Your answer:linear**
+
+
+```{r runs-vs-at_bats}
+# type your code here
+plot(mlb11$at_bats, mlb11$runs)
+
+```
+
+</div>
+
+
+If the relationship looks linear, we can quantify the strength of the relationship with a correlation test:
+
+```{r cor}
+cor(mlb11$runs, mlb11$at_bats)
+```
+
+In this case, it has a fairly strong positive correlation (cor = 0.61).
+
+## The linear model
+
+It is rather cumbersome to try to get the correct least squares line by hand, i.e. the line that minimizes the sum of squared residuals, through trial and error. Instead we can use the `lm` function in R to fit the linear model (a.k.a. regression line).
+
+```{r m1}
+m1 <- lm(runs ~ at_bats, data = mlb11)
+```
+
+The first argument in the function `lm` is a formula that takes the form  `y ~ x`. Here it can be read that we want to make a linear model of `runs` as a function of `at_bats`. The second argument specifies that R should look in the `mlb11` data frame to find the `runs` and `at_bats` variables.
+
+The output of `lm` is an object that contains all of the information we need about the linear model that was just fit. We can access this information using the summary function.
+
+```{r summary-m1}
+summary(m1)
+```
+
+Let's consider this output piece by piece. First, the formula used to describe the model is shown at the top. After the formula you find the five-number summary of the residuals. The "Coefficients" table shown next is key; its first column displays the linear model's y-intercept and the coefficient of `at_bats`. With this table, we can write down the least squares regression line for the linear model:
+
+$$\hat{y} = 0.6305 *  at\_bats - 2789.2429$$
+
+One last piece of information we will discuss from the summary output is the Multiple R-squared, or more simply, $R^2$. The $R^2$ value represents the proportion of variability in the response variable that is explained by the explanatory variable. For this model, 37.3% of the variability in runs is explained by at-bats.
+
+
+<div class="question">
+
+ **Q3 (4 pts):** Fit a new model that uses `homeruns` to predict `runs`.  Using the estimates from the R output, write the equation of the regression line. What does the slope tell us in the context of the relationship between success of a team and its home runs? 
+
+* For each additional home run, the model predicts 1.83 more runs, on average. 
+* For each additional home run, the model predicts 1.83 fewer runs, on average. 
+* For each additional home run, the model predicts 415.24 more runs, on average.
+* For each additional home run, the model predicts 415.24 fewer runs, on average.
+
+**Your answer:For each additional home run, the model predicts 1.83 more runs, on average**
+
+
+```{r homeruns-vs-runs}
+# type your code here
+plot(mlb11$runs ~ mlb11$at_bats)
+abline(m1)
+
+```
+
+</div>
+
+
+## Prediction and prediction errors
+
+Let's create a scatter plot with the least squares line for `m1` laid on top.
+
+```{r reg-with-line}
+ggplot(data=mlb11, aes(x=at_bats))+
+  geom_point(aes(y=runs))+
+  geom_line(aes(y=predict(m1)))+
+  labs(x="At bats",y="Runs")+
+  theme_bw()
+```
+
+This line can be used to predict $y$ at any value of $x$. When predictions are made for values of $x$ that are beyond the range of the observed data, it is referred to as *extrapolation* and is not usually recommended. However, predictions made within the range of the data are more reliable. They're also used to compute the residuals.
+
+To find the observed number of runs for the team with 5,579 at bats you can use the following:
+
+```{r}
+mlb11 %>%
+  filter(at_bats == 5579) %>%
+  dplyr::select(runs)
+```
+
+This code first filters for rows observation. `at_bats` is 5579, and then shows the value of the `runs` variable for that observation.
+
+
+<div class="question">
+
+**Q4 (2 pts):** What is the residual (observed - estimated) for the prediction of runs for a team with 5,579 at-bats? Choose the closest answer. *Hint:* you can calculate the estimated value by plugging 5579 into the equation for the line of best fit from the linear regression model.
+
+* -15.32 
+* 15.32 
+* 713 
+* 5579 
+
+**Your answer:-15.32**
+
+
+```{r residual}
+# type your code here
+new.at_bats <- data.frame(at_bats=c(5579))
+predict(m1, new.at_bats)
+
+mlb11[mlb11$at_bats == 5579, "runs"]
+predict(m1, new.at_bats)
+m1$residuals
+mlb11[mlb11$at_bats == 5579, "runs"] - predict(m1, new.at_bats)
+
+```
+
+</div>
+
+
+## Model diagnostics
+
+To assess whether the linear model is reliable, we need to check for (1) linearity, (2) nearly normal residuals, and (3) constant variance/variability.
+
+**Linearity**: You already checked if the relationship between runs and at-bats is linear using a scatter plot. We should also verify this condition with a plot of the residuals vs. fitted (predicted) values.
+
+```{r residuals}
+plot(m1$fitted, m1$residuals)
+abline(h = 0, lty=2, col='red')
+```
+
+Notice here that our model object `m1` can also serve as a data set because stored within it are the fitted values ($\hat{y}$) and the residuals. Also note that we're getting fancy with the code here. After creating the scatterplot on the first layer (first line of code), we overlay a horizontal dashed line at $y = 0$ (to help us check whether residuals are distributed around 0), and we also adjust the axis labels to be more informative.
+
+
+<div class="question">
+
+ **Q5 (1 pt):**Which of the following statements about the residual plot is false? 
+
+* The residuals appear to be randomly distributed around 0.  
+* The residuals show a curved pattern.  
+* The plot is indicative of a linear relationship between runs and at-bats.  
+* The team with a very high residual compared to the others appears to be an outlier. 
+
+**Your answer:The residuals show a curved pattern**
+
+
+</div>
+
+
+**Nearly normal residuals** and **Constant variability**: To check these conditions, we can look at a histogram
+
+```{r hist-res}
+hist(m1$residuals)
+```
+
+or a qq plot of the residuals and quantile of normal distribution
+
+```{r qq-res}
+qqnorm(m1$residuals)
+qqline(m1$residuals)
+```
+
+
+<div class="question"> 
+
+**Q6 (1 pt):** Which of the following is true? 
+ 
+* The residuals are extremely right skewed, hence the normal distribution of residuals condition is not met. 
+* The residuals are extremely left skewed, hence the normal distribution of residuals condition is not met.  
+* The residuals are perfectly symmetric, hence the normal distribution of residuals condition is met. 
+* The residuals are fairly symmetric, with only a slightly longer tail on the right, hence it would be appropriate to deem the normal distribution of residuals condition met. 
+
+
+**Your answer:The residuals are fairly symmetric, with only a slightly longer tail on the right, hence it would be appropriate to deem the normal distribution of residuals condition met**
+
+
+</div>
+
+
+<div class="question"> 
+
+**Q7 (1 pt):** Based on the residuals plot from earlier, the constant variability condition appears to be met. 
+ 
+* True 
+* False 
+
+**Your answer:True**
+
+
+</div>
+
+
+<div class="question">
+
+**Q8 (10 pts):** Now examine the three newer variables: on-base plus slugging, slugging percentage, and on-base percentage. These are the statistics used by the analysts in *Moneyball* to predict a teams success. In general, are they more or less effective at predicting runs that the old variables? Explain using appropriate graphical and numerical evidence.  Of all ten variables we've analyzed, which seems to be the best predictor of `runs`? 
+
+* on-base plus slugging (`new_obs`) 
+* slugging percentage (`new_slug`)  
+* on-base percentage (`new_onbase`) 
+
+**Your answer:**
+
+```{r runs-vs-new-vars}
+# type your code for Question 10 here, and Knit
+m4 <- lm(runs ~ new_obs, data = mlb11)
+plot(mlb11$runs ~ mlb11$new_obs)
+abline(m4)
+summary(m4)$r.squared
+plot(m4$residuals ~ mlb11$hits)
+abline(h = 0, lty = 3)
+
+m5 <- lm(runs ~ new_slug, data = mlb11)
+plot(mlb11$runs ~ mlb11$new_slug)
+abline(m5)
+summary(m5)$r.squared
+plot(m5$residuals ~ mlb11$hits)
+abline(h = 0, lty = 3) 
+
+m6 <- lm(runs ~ new_onbase, data = mlb11)
+plot(mlb11$runs~ mlb11$new_onbase)
+abline(m6)
+summary(m6)$r.squared
+plot(m6$residuals ~ mlb11$hits)
+abline(h = 0, lty = 3)
+
+```
+
+</div>
+
+
+<div class="question">
+
+**Q9 (5 pts):** Check the model diagnostics for the regression model with the variable you decided was the best predictor for runs. Does it meet the regression assumptions (linearity; nearly-normal residuals; constant variability)?
+
+**Your answer:**
+
+
+```{r diagnost}
+# type your code here 
+
+
+```
+
+</div>
+
+
+## Multiple Regression
+
+So far, we've been doing simple linear regression: predicting runs (our "y" variables) using one "x" variable (e.g. on base percentage). BUT we can use multiple x variables to improve our model. This is called multiple linear regression.
+
+In R, we can fit a multiple regression model like this, which is predicting runs using at_bats, hits, AND homeruns. 
+
+```{r}
+multiple_lm <- lm(mlb11$runs ~ mlb11$at_bats +mlb11$hits + mlb11$homeruns)
+summary(multiple_lm)
+```
+
+There are some interesting things in this output: we still have an adjusted R-squared (0.8589) and p-value (8.335e-12) for our overall model, which shows our model explains
+a significant amount of the variation in runs (our y variable). BUT we also have individual p-values for each of our variables: at_bats = 0.144, hits = 1.83e-05, and homeruns=4.64e-07. Based on these results, at_bats is NOT a significant predictor of runs when you are already accounting for hits and homeruns!
+
+We can check the model diagnostics for a multiple linear regression model similar to how we would a simple model. In this case, this model doesn't look very good
+
+```{r}
+# Normality of residuals: not met very well, this model 
+qqnorm(multiple_lm$residuals)
+qqline(multiple_lm$residuals)
+
+# Linearity and constant variablity: these look pretty good! Going from left to
+# right there isn't a strong trend in either direction and the spread around the
+# center line stays about constant
+plot(multiple_lm$fitted, multiple_lm$residuals)
+abline(h=0, col="red")
+```
+
+
+<div class="question">
+
+**Q10 (10 pts):** Using any 3 variables in the dataset (NOT including the "runs" variable), as predictors, what's the highest adjusted R-squared you can get for a multiple linear regression model predicting runs? You may have to test out using a few different variable combinations. If one variable isn't significant, you can try replacing it with something else to see if it will increase your r-squared! After fitting your model, check the model diagnostics to make sure it meets the assumptions of linear regression (see above). Report your Adjusted R-squared and model p-value
+
+**Your answer:**
+
+```{r diag}
+# type your code for the linear model here
+
+
+
+# Normality of residuals
+
+
+
+# Linearity and constant variability
+
+
+```
+
+</div>
+
+#### 40 points total. 
+
+
+#### **Reminder** Did you put your name in line 4?
+
+
+#### Once you're all done with the lab, click the 'knit' button up at the top of this markdown window and submit both the .Rmd and .html files to Canvas. 
+
+
+#### Acknowledgements
+
+This lab is modified based on [OpenIntro]((https://www.openintro.org/book/os/#learning_filters) lab.
+
+

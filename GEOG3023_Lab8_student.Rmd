@@ -1,0 +1,532 @@
+---
+title: "GEOG 3023 Lab 8"
+subtitle: "ANOVA and non-parametric tests"
+author: "Jason Lee"
+output: 
+  html_document:
+    css: "lab.css"
+---
+
+```{r setup, include=FALSE}
+
+# Setup the environment
+library(knitr)
+knitr::opts_chunk$set(fig.align='center',fig.width=10, fig.height=6, fig.path='Figs/',  warning=FALSE, echo=TRUE, eval=TRUE, message=FALSE)
+
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# function to install pakages and then load them from the library
+# if this errors for some reason, just load the new packages
+install_the_libs <-function(libs){
+  if (!libs %in% rownames(installed.packages())) install.packages(libs)
+}
+
+libs <- c("fields", "tidyverse", "sf", "raster","lubridate", 
+          "knitr", "spatstat", "sp", "dunn.test")
+invisible(sapply(libs, install_the_libs))
+invisible(sapply(libs, library, character.only=TRUE))
+
+```
+
+
+<div class="instructions">
+
+Complete all **6 Questions**, and submit the finished Rmd and HTML file onto Canvas. There is also an extra credit question at the end that you should attempt! Don't forget to change name field in the beginning to your first and last name. 
+
+</div>
+
+## Lab 8 Goals 
+
+1. Understand how to conduct and interpret ANOVAs
+2. Understand how to check the normality of data
+3. Know which hpothesis test to run based on the normality of data
+
+## Introduction
+
+This week, we'll be using t-tests (review), ANOVA (new), normality checking (new), and non-parametric hypothesis tests (new) to compare snow accumulation, based on snow water equivalent (SWE), among river basins in the state of Colorado, as well as the site and meteorological variables related to SWE. 
+
+In Lab 7, we conducted t-tests, which are hypothesis tests to compare up to two independent groups. But what if we have more than two groups? What do we do then? We conduct an ANOVA (`aov(x~g)`, where x is the variable of interest, and g is the grouping variable)!
+
+An ANOVA will tell us if any of the groups are different from each other, but not which groups specifically, or by how much. If we want that information, we have to conduct a post-hoc test, a TukeyHSD (`tukeyHSD(x)`, where `x` is the ANOVA model object).
+
+Now let's get into the data!
+
+Run the next chunk of code to read in all of data files we'll be using and do some basic data wrangling.
+
+```{r message=FALSE, warning=FALSE}
+# read in all kinds of data. 
+# Don't change code in this chunk, but you do need to run it!
+
+# read in counties shapefile
+counties <- st_read("Data/cb_2018_us_county_20m.shp")
+
+# subset to relevant states based on FIP codes
+# CO = 08, see https://www.nrcs.usda.gov/wps/portal/nrcs/detail/?cid=nrcs143_013696 for all FIPS codes 
+counties <- counties %>%
+  filter(STATEFP == '08')
+
+# read in river basin shapes
+all_shape <- st_read("Data/All_River_Basins.shp")
+
+all_shape <- all_shape %>%
+  st_transform("+proj=longlat +ellps=WGS84 +datum=WGS84")
+
+# make individual datarfames for all the river basins
+NPRB <- all_shape %>%
+  filter(HU6NAME == "North Platte")
+YRB <- all_shape %>%
+  filter(HU6NAME == "Yampa")
+SPRB <- all_shape %>%
+  filter(HU6NAME == "South Platte")
+RRB <- all_shape %>%
+  filter(HU6NAME == "Republican")
+UCRB <- all_shape %>%
+  filter(HU6NAME == "Colorado")
+WRB <- all_shape %>%
+  filter(HU6NAME == "White")
+DRB <- all_shape %>%
+  filter(HU6NAME == "Dolores")
+ARB <- all_shape %>%
+  filter(HU6NAME == "Arkansas")
+GRB <- all_shape %>%
+  filter(HU6NAME == "Gunnison")
+RGRB <- all_shape %>%
+  filter(HU6NAME == "Rio Grande")
+SJRB <- all_shape %>%
+  filter(HU6NAME == "San Juan")
+
+# read in the SNOTEL data file
+SNOTEL_df <- read.csv("Data/CO_SNOTEL_data.csv")
+
+# clean out some bad data
+SNOTEL_df <- SNOTEL_df %>%
+  filter(temperature_mean < 3*sd(temperature_mean,na.rm=T) & 
+           temperature_mean > -3*sd(temperature_mean,na.rm=T))
+
+#format date column and make month, year, and water-year columns 
+SNOTEL_df <- SNOTEL_df %>%
+  mutate(date = as.Date(SNOTEL_df$date, format="%Y-%m-%d"),
+         month = month(date),
+         year  = year(date))
+```
+
+### Data
+
+The data for this week comes from a few sources. The SNOTEL (**SNO**w **TEL**emetry) data are from [USDA National Water and Climate Center (NWCC)](https://wcc.sc.egov.usda.gov/reportGenerator/), and river basin data are from [State of Colorado Decision Support Systems](https://cdss.colorado.gov/gis-data/gis-data-by-category). The counties data, used for just for mapping purposes are from [the US Census Bureau](https://www.census.gov/geographies/mapping-files/time-series/geo/carto-boundary-file.html).
+
+SNOTEL data info and units:
+
+* `network`                  = observation network, "SNTL"
+* `state`                    = state site is located in, CO
+* `site_name`                = character site name
+* `description`              = watershed site is located in
+* `start`                    = date the measurement record started at a site
+* `end`                      = date the measurement record ends at the site. 
+* `latitude`                 = site latitude, $...^o$
+* `longitude`                = site longitude, $...^o$
+* `elev`                     = site elevation, $m-ASL$
+* `county`                   = character data type of county site is located in
+* `site_id`                  = numeric site ID
+* `date`                     = measurement date. timezone = UTC-08:00 (PST)
+* `snow_water_equivalent`    = amount of water in the snow if the snow were to instantaneously melt, measured from snow pillows $mm$
+* `precipitation_cumulative` = cumulative precipitation for each water year, $mm$
+* `temperature_max`          = maximum daily air temperature, $^oC$
+* `temperature_min`          = minimum daily air temperature, $^oC$
+* `temperature_mean`         = average daily air temperature, $^oC$
+* `precipitation`            = daily total liquid precipitation from rain gage, $mm$
+* `month`                    = month the measurement was collected
+* `year`                     = year measurement was collected
+
+First, let's look at the data (it might take a second to run, that's okay, it's a big file).
+
+```{r}
+ggplot()+
+  geom_sf(data=counties,fill=NA)+
+  geom_sf(data=NPRB, fill='darkgoldenrod', alpha=0.7)+
+  geom_sf(data=YRB, fill='darkseagreen4', alpha=0.7)+
+  geom_sf(data=SPRB, fill='darksalmon', alpha=0.7)+
+  geom_sf(data=RRB, fill='darkolivegreen', alpha=0.7)+
+  geom_sf(data=UCRB, fill='darkcyan', alpha=0.7)+
+  geom_sf(data=WRB, fill='coral1', alpha=0.7)+
+  geom_sf(data=DRB, fill='bisque4', alpha=0.7)+
+  geom_sf(data=ARB, fill='deeppink4', alpha=0.7)+
+  geom_sf(data=GRB, fill='darkslategray3', alpha=0.7)+
+  geom_sf(data=RGRB, fill='darkgoldenrod1', alpha=0.7)+
+  geom_sf(data=SJRB, fill='brown4', alpha=0.7)+
+  geom_point(data=SNOTEL_df%>%group_by(site_id),aes(x=longitude,y=latitude),color="darkblue",size=6)+
+  theme_bw()+
+  labs(x=" " , y=" ",caption="Figure 1. Active SNOTEL sites (blue dots) and the boundaries of HUC6 River Basins in Colorado.")+
+  theme(plot.caption=element_text(face="italic"))
+```
+
+We can see that the SNOTEL sites are not evenly distributed across the State, so we'll just work with a handful of basins from now on: 
+
+* Yampa River Basin
+* Colorado River Basin
+* North Platte River Basin
+* South Platte River Basin
+
+To do this, we have to do some data wrangling. Read through and run the next chunk of code to get the data wrangled down to something more manageable. A lot of work has to go into spatial data, so the next code chunk is just for you to run and have as a reference if you ever need to handle spatial data in R! It also might take a minute or two to run, just be patient :).
+
+```{r}
+# make the SNOTEL_df into sf object and set the coordinate reference system to that of the all_shape 
+SNOTEL_shape <- SNOTEL_df %>%
+  st_as_sf(coords = c('longitude','latitude'))%>%
+  st_set_crs(st_crs(all_shape))
+
+# subset the SNOTEL sites to only the ones within the river boundaries of interest, add a column that indicates which basin, and then get it back to a normal dataframe with lat and long columns without geometry
+NPRB_sub <- SNOTEL_shape[NPRB, ] %>%
+  mutate(longitude = sf::st_coordinates(.)[,1],
+         latitude = sf::st_coordinates(.)[,2],
+         site_id = as.factor(site_id),
+         basin = "North Platte")%>%
+  st_drop_geometry()
+
+SPRB_sub <- SNOTEL_shape[SPRB, ] %>%
+  mutate(longitude = sf::st_coordinates(.)[,1],
+         latitude = sf::st_coordinates(.)[,2],
+         site_id = as.factor(site_id),
+         basin = "South Platte")%>%
+  st_drop_geometry()
+
+UCRB_sub <- SNOTEL_shape[UCRB, ] %>%
+  mutate(longitude = sf::st_coordinates(.)[,1],
+         latitude = sf::st_coordinates(.)[,2],
+         site_id = as.factor(site_id),
+         basin = "Colorado")%>%
+  st_drop_geometry()
+
+YRB_sub <- SNOTEL_shape[YRB, ] %>%
+  mutate(longitude = sf::st_coordinates(.)[,1],
+         latitude = sf::st_coordinates(.)[,2],
+         site_id = as.factor(site_id),
+         basin = "Yampa")%>%
+  st_drop_geometry()
+
+#rbind all the dataframes together to one
+SNOTEL_sub <- rbind(NPRB_sub,SPRB_sub,UCRB_sub,YRB_sub)
+
+```
+
+And now let's plot a map of the wrangled data, just make sure it's what we want.
+
+```{r}
+ggplot()+
+  geom_sf(data=counties,fill=NA)+
+  geom_sf(data=NPRB, fill='darkgoldenrod',alpha=0.7)+
+  geom_sf(data=YRB,  fill='darkseagreen4',alpha=0.7)+
+  geom_sf(data=SPRB, fill='darksalmon',alpha=0.7)+
+  geom_sf(data=UCRB, fill='darkcyan',alpha=0.7)+
+  geom_point(data=SNOTEL_sub%>%group_by(site_id),aes(x=longitude,y=latitude),color="darkblue",size=6)+
+  theme_bw()+
+  labs(x=" " , y=" ",caption="Figure 2. Active SNOTEL sites (blue dots) and the boundaries of the Yampa, North Platte, South Platte, and Colorado River Basins in Colorado.")+
+  theme(plot.caption=element_text(face="italic"))
+```
+
+That's better!
+
+Now we have a dataframe that only has the 62 SNOTEL sites we want and has a column that identifies the basin the SNOTEL site is located it. Since these are time series from 62 sites, spanning up to 40 years, the dataframe is still large, but that's okay. (Bigger sample size, that's a good thing.) 
+
+## Example: Comparing SWE
+
+First, let's compare the river basins by SWE. Since SWE is a measure of snow accumulation, it's 0 for a lot of the year. We need to get rid of those 0's to better look at the data. 
+
+Unless specified to use a subset of these data, we will be using the `SNOTEL_no_zeros` data frame throughout the rest of the lab. 
+
+```{r swe}
+SNOTEL_no_zeros <- SNOTEL_sub %>%
+  filter(snow_water_equivalent > 0)
+
+ggplot(data=SNOTEL_no_zeros)+
+  geom_boxplot(aes(x=basin,y=snow_water_equivalent,fill=basin))+
+  labs(x="River Basin", y="SWE (mm)")+
+  theme_bw()+
+  theme(legend.position="none")
+```
+
+Based on the boxplot, it seems like the Yampa River Basin has higher SWE than the other three basins, but is it significantly higher?
+
+
+<div class="question">
+
+**Q1 (8 pts):** (Review) Run a t-test comparing the Yampa and North Platte River Basins SWE.
+State the null and alternative hypotheses. Interpret the result with $\alpha=0.05$. If there is a significant difference, which basin has higher SWE? *Hint:* you will want to make a filtered dataframe of just the Yampa and North Platte River Basins before running the t-test. 
+
+**Null: Yampa and North Platte River Basins SWE mean would same.** 
+
+**Alternative: Yampa and North Platte River Basins SWE mean would not same.** 
+
+**Your answer: Yampa and North Platte River Basins SWE mean would same.** 
+
+*code:*
+```{r t-test}
+# type your code for your hypothesis test here:
+yampa <- SNOTEL_no_zeros %>%
+    filter(basin == "Yampa")
+n_platte <- SNOTEL_no_zeros %>%
+    filter(basin == "North Platte")
+t.test(yampa$snow_water_equivalent, n_platte$snow_water_equivalent)
+```
+
+</div>
+
+
+Next, we'll compare SWE among all of the basins (remember, there are 4 basins). We'll show you how to do this one using an ANOVA test. Remember, an ANOVA test is used to compare 3 or more groups (whereas a t-test only works on up to 2 groups).
+
+We'll show an example and then you'll be asked to do this for a different variable. 
+
+```{r anova-example}
+SWE_anova <- aov(SNOTEL_no_zeros$snow_water_equivalent ~ SNOTEL_no_zeros$basin)
+summary(SWE_anova)
+```
+
+*Null:* The mean SWE is the same among the 4 basins. 
+
+*Alternative:* The mean SWE is not the same among the 4 basins. 
+
+*Interpretation:* The p-value is less than our alpha (p < e{^-16}), and so we reject the null hypothesis. There is evidence of a significant difference in the mean SWE among basins.
+
+Since there is a significant difference, we *need to* run a post-hoc test to determine which basins are different. If it weren't significant, we wouldn't have to run the Tukey HSD test. 
+
+```{r tukey}
+TukeyHSD(SWE_anova)
+```
+
+All of the p-values between pairs are below 0.05 (printed as 0, meaning it's really small), so that tells us that each pair (e.g. South Platte - Colorado) of basins is significantly different from each other. 
+
+
+## Your Turn: Comparing meterological variables realted to SWE with t-tests and ANOVA
+
+Our initial results seem to indicate that there's a difference between river basins in terms of SWE, so maybe we can better understand the differences in SWE by looking at other meteorological conditions in each river basin. 
+
+SWE is closely related to elevation, air temperature, and precipitation so let's look at those variables in turn.
+
+
+<div class="question">
+
+**Q2 (12 pts):** Let's look at `temperature_mean` for the Colorado and South Platte River basins. Create a boxplot comparing the two river basins. Conduct a t-test and interpret the result with $\alpha=0.05$. If there is a significant difference, which basin experiences higher air temperatures? State the null and alternative hypotheses. *Hint:* you will want to make a filtered dataframe of just the Colorado and South Platte River Basins before creating the boxplot and running the t-test. 
+
+**Null:Colorado and South Platte River Basins SWE mean would same.** 
+
+**Alternative:Colorado and South Platte River Basins SWE mean would not same.** 
+
+**Your answer: Colorado and South Platte River Basins SWE mean would same.** 
+
+*Code:*
+```{r sos-t}
+# type your code here:
+colorado = SNOTEL_no_zeros %>%
+  filter(basin == 'Colorado')
+
+s_platte = SNOTEL_no_zeros %>%
+  filter(basin == 'South Platte')
+
+spco = SNOTEL_no_zeros %>%
+  filter(basin == 'South Platte' | basin == 'Colorado')
+
+ggplot(data=spco)+
+  geom_boxplot(aes(x=basin, y=temperature_mean, fill=basin))+
+  theme_bw()
+
+t.test(colorado$temperature_mean, s_platte$temperature_mean)
+```
+
+
+</div>
+
+<div class="question">
+
+**Q3 (12 pts):** Create a boxplot of the 4 basins and run an ANOVA test comparing the 4 basins on daily mean air temperature (`temperature_mean`). Interpret the result with $\alpha=0.05$. Is there a significant difference? If so, be sure to run a TukeyHSD post-hoc test to determine which pairs of basins are significantly different from each other. Summarize your results in a few sentences. Did any basin have particularly cold or warm air temperatures? 
+
+State your null and alternative hypotheses for the ANOVA (you don't need to do it for the TukeyHSD)
+
+**Null:all 4 rivers' SWE mean would same.** 
+
+**Alternative:all 4 rivers' SWE mean would not same.** 
+
+**Your Answer: all 4 rivers' SWE mean would not same.**
+
+*Code:*
+```{r sos anova}
+# type your code here:
+colorado = SNOTEL_no_zeros %>%
+  filter(basin == 'Colorado')
+
+s_platte = SNOTEL_no_zeros %>%
+  filter(basin == 'South Platte')
+
+yampa = SNOTEL_no_zeros %>%
+    filter(basin == "Yampa")
+
+n_platte = SNOTEL_no_zeros %>%
+    filter(basin == "North Platte")
+
+spco = SNOTEL_no_zeros %>%
+  filter(basin == 'South Platte' | basin == 'Colorado' | basin == 'Yampa' | basin == 'North Platte')
+
+ggplot(data=spco)+
+  geom_boxplot(aes(x=basin, y=temperature_mean, fill=basin))+
+  theme_bw()
+
+t.test(colorado$temperature_mean, s_platte$temperature_mean)
+```
+
+
+</div>
+
+## Non-Parametric Example: Comparing precipitation amounts
+
+From lecture, remember that one of the assumptions of t-tests and ANOVA is normality.
+
+Specifically:
+
+1. For two-sample t-tests, each sample must be roughly normally distributed.
+2. For ANOVA, the residuals (the errors) must be normally distributed.
+
+Let's check our daily total precipitation data for these assumptions.
+
+If our data do not meet these assumptions, instead of running "parametric" tests (t-test and ANOVA) we should run "non-parametric" versions of those tests: Wilcox Rank Sum Test instead of the t-test and Kruskal-Wallis Rank Sum Test instead of ANOVA.
+
+### t-test normality check and Wilcox Test
+
+For the t-test, each group must be normally distributed. We can check that using a qqnorm plot:
+
+```{r qqnorm_t}
+NorthPlatte <- SNOTEL_no_zeros %>% filter(basin=='North Platte')
+SouthPlatte <- SNOTEL_no_zeros %>% filter(basin=='South Platte')
+Yampa       <- SNOTEL_no_zeros %>% filter(basin=='Yampa')
+Colorado    <- SNOTEL_no_zeros %>% filter(basin=='Colorado')
+
+par(mfrow=c(2,2)) #this line just arranges the four plots into two rows and two columns
+qqnorm(NorthPlatte$precipitation)
+qqline(NorthPlatte$precipitation)
+qqnorm(SouthPlatte$precipitation)
+qqline(SouthPlatte$precipitation)
+qqnorm(Yampa$precipitation)
+qqline(Yampa$precipitation)
+qqnorm(Colorado$precipitation)
+qqline(Colorado$precipitation)
+```
+
+If the data are normal, then the dots should line up along the solid line. Since the dots skew far from the line on the right side of the plot, that means hese data are not normal and we should run a non-parametric test. For a t-test, that's the "Wilcox test". The R function for that is `wilcox.test(x,y)`, where `x` and `y` are two independent groups. We interpret the results the same as we would a t-test. If our p-value is less than 0.05, we can reject the null hypothesis that the total precipitation is the same between two given basins.
+
+### ANOVA normality check and Kruskal Wallis
+
+For ANOVA, the residuals (the errors) must be normally distributed. We can check that by running an ANOVA and then plotting the residuals
+
+```{r anova normality}
+precip_anova <- aov(SNOTEL_no_zeros$precipitation~SNOTEL_no_zeros$basin)
+plot(precip_anova, 2)
+```
+
+Again, this looks pretty non-normal. See at the right edge of the plot how it's quite a bit above
+the line? 
+
+So instead of running ANOVA, we can run the Kruskal-Wallis test (`kruskal.test(x~g)`, where `x` is the data variable, and `g` is the grouping variable). And instead of the TukeyHSD post-hoc test, we'll run a Dunn Test (`dunn.test(x,g)`, where `x` is the data variable, and `g` is the grouping variable) as our post-hoc. 
+
+Here we can again interpret the results the same as we would ANOVA and the TukeyHSD. If the Kruskal Test is significant (p < 0.05), we run a Dunn's post-hoc test to compare the basins. The Dunn's test shows the p-values for each pair of basins (the p-values are the bottom number in each cell). 
+
+### Your Turn: 
+
+<div class="question">
+
+**Q4 (10 pts):** Since we know the precipitation data are not normal, run a Kruskal Wallis Rank Sum Test to determine if precipitation amounts in each basins are significantly different from each other. If there is a significant difference, conduct a Dunn's Test to determine which basins are different from each other, and discuss how they are different. Make sure to state your null and alternative hypotheses. A boxplot and/or calculating mean precipitation for each basin might help answer the last part of this question.
+
+**Null:** 
+
+**Alternative:** 
+
+**Your Answer:** 
+
+*Code:* 
+```{r q4}
+# type your code here:
+
+
+```
+</div>
+
+
+<div class="question">
+
+**Q5 (6 pts):** Let's look at the measurement elevation (`elev`) data now. Determine if the elevation data are normal using a qqnorm plot for South Platte and Yampa River basins. Based on the results from the qqnorm plot, should we use parametric or non-parametric test on the data? *Hint:* use the basin dataframes we created above for the precipitation qqnorm plots. Since the elevation data are discrete, the qqnorm plot will look a little weird, but it migh help to imagine a line connecting the dots. 
+
+**Your Answer:** 
+
+```{r q5}
+# type your code here:
+
+
+```
+
+</div>
+
+
+<div class="question">
+
+**Q6 (12 pts):** Run a comparison between the SNOTEL site elevations in the South Platte and Yampa River basins. Choose the appropriate test based on your findings from Q5. Remember to state the null and alternative hypotheses and interpret your results in a sentence or two. Which basin has SNOTEL sites at higher average elevations? *Hint:* you will want to make a filtered dataframe of just the Yampa and North Platte River Basins before running the t-test and either create a boxplot and/or calculate the mean measurement elevation for each basin. 
+
+**Null:** 
+
+**Alternative:** 
+
+**Your Answer:** 
+
+*code:*
+```{r q6}
+# type your code here:
+
+
+```
+
+</div>
+
+<div class="question">
+
+**EXTRA CREDIT (15 pts possible):** This extra credit question incorporates material from multiple labs and must be done on your own/with classmates - your TA can't help you!
+
+After everything we've done with these SNOTEL data, why did it all matter? What relationships can we draw from these results? How do elevation, air temperature, and precipitation relate to SWE? It's hard to answer those questions strictly from the results we have, so let's do some more analysis.
+
+1) Conduct a linear regression model that relates the above mentioned variables, regardless of river basin. Interpret the results of this model by stating which variables significantly impact SWE, by what magnitude, and in what direction. Does the model do a good job of explaining the variability in SWE? 
+
+*Hint:* remember you can run a linear regression model with `lm(y~x)`, where `y` is the dependent variable, and `x` is the independent variable.If you want to add multiple independent variables, it'd look something like this: `lm(y~x_1+x_2...x_n)`. The slope indicates the magnitude (large or small) and direction (positive or negative) of influence an independent variable has on the dependent. 
+
+**Your Answer:**
+
+```{r}
+#insert your code here: 
+
+
+```
+
+2) Now conduct the same linear regression models for each basin. Do the results change? If so, how? Do any of the basin models do a better job of explaining the variability in SWE than the first model? 
+*Hint:* you can use the basin dataframes we created for the precipitation qqnorm plots.
+
+**Your Answer:**
+
+```{r}
+#insert your code here: 
+
+
+```
+
+3) Finally, what are some potential *spatial* reasons that could explain the difference among basins and model performances for each model? Reference Figure 2 to help think of some spatial explanations. (This topic hasn't been covered in lecture or lab that much yet so do your best to come up with some potential reasons.)
+
+**Your Answer:**
+
+</div>
+
+
+#### 60 points total, with 15 possible extra credit. 
+
+
+#### **Reminder** Did you put your name in line 4?
+
+
+#### Once you're all done with the lab, click the 'knit' button up at the top of this markdown window and submit both the .Rmd and .html files to Canvas. 
